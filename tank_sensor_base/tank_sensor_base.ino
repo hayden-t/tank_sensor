@@ -106,7 +106,7 @@ void loop() {
   
      DateTime now = RTC.now();
   
-     sprintf(line, "%d:%02d%s ", (now.hour()>12?now.hour()-12:now.hour()), now.minute(), (now.hour()<12?"AM":"PM"));
+     sprintf(line, "%d:%02d ", (now.hour()>12?now.hour()-12:now.hour()), now.minute());
      lcd.setFont(SmallFont);
      lcd.print(line, LEFT, 0);
      
