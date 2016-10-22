@@ -22,17 +22,20 @@ typedef struct {
 int txTimes = 3;//times to resend same reading
 int txDelay = 1000;//delay between txTimes //100 seems to work
 
-//const int SleepTimes = 1;
-const int SleepTimes = 75;//x8 sec = sleep timer 75 = 10min
+
+const int SleepTimes = 75;//x8 sec = sleep timer 75 = 10min, 0 = dont sleep, keep reading
+
 
 const int speedSound = 343;//m/s
-const int timeOut = 26000;//445cm (spec 25cm - 4.5m)
+const int minDistance = 25;//minimum distance sensor can read, under is error
+const int maxDistance = 445;//maximum distance sensor can read, over is error
 
 const int TRIG_PIN = 2;
 const int ECHO_PIN = 4;
-const int POWR_PIN = 5;
 const int ULTR_PIN = 3;
+const int VDIV_PIN = 7;
 const int RF24_PIN = 8;
+const int BATT_PIN = A3;
 
 void setup() {
   
@@ -40,39 +43,37 @@ void setup() {
   printf_begin();
   printf("\n\n\rWATER SENSOR START\n\n\r");
   pinMode(ECHO_PIN, INPUT);//echo
+  pinMode(BATT_PIN, INPUT);//battery voltage
   pinMode(TRIG_PIN, OUTPUT);//triger
-  pinMode(POWR_PIN, OUTPUT);//power switch
   pinMode(ULTR_PIN, OUTPUT);//sensor switch
+  pinMode(VDIV_PIN, OUTPUT);//battery voltage divider switch
   pinMode(RF24_PIN, OUTPUT);//sensor switch
-  digitalWrite(ULTR_PIN, LOW);//turn off sensor  
-  digitalWrite(RF24_PIN, LOW);//turn off sensor  
+  digitalWrite(ULTR_PIN, LOW);//turn off sensor power
+  digitalWrite(VDIV_PIN, LOW);//turn off divider power
+  digitalWrite(RF24_PIN, LOW);//turn off sensor power
 
 }
 
 void loop(){
-   
 
-     digitalWrite(POWR_PIN, LOW);//turn on boost power
      printf("\n\rPower ON\n\r");
-     delay(500);
-  
+     
      int distance = getDistance();
-     int voltage = readVcc();
+     int voltage = readBatt();
      
-     printf("\n\rDistance: %d cm, Voltage: %d\n\r",distance, voltage);  
+     printf("\n\rDistance: %d cm, Voltage: %d\n\r",distance, voltage); 
+     if(!distance)printf("** Error reading Sensor **\n\r");
      
-     transmit(distance, voltage);
-     
-     printf("Sleeping");
-
-     printf("\n\rPower OFF\n\r");
-     delay(100);
-     digitalWrite(POWR_PIN, HIGH);//turn off power
+     transmit(distance, voltage);    
+    
+    if(SleepTimes){
+       printf("Power OFF\n\r\n\r");
+    }
     
      int i = 0;
      while(i < SleepTimes){
       
-        printf(".%d",SleepTimes - i);//debug - turn off ?
+        printf("%d.",SleepTimes - i);
         delay(100);
        #ifdef SLEEP_4 
          LowPower.powerDown(SLEEP_4S, ADC_OFF, BOD_OFF);
@@ -82,7 +83,7 @@ void loop(){
         i++;
        
      }
-     if(!SleepTimes)delay(5000);//no sleep
+     if(!SleepTimes)delay(3000);//no sleep delay between reads
      printf("\n\r");
      
 }//end loop
@@ -92,7 +93,7 @@ int getDistance(){
   printf("\n\rReading Distance\n\r");
   
   digitalWrite(ULTR_PIN, HIGH);//turn on sensor
-  delay(500);
+  delay(500);//risetime
   
   unsigned long duration; 
 
@@ -100,13 +101,16 @@ int getDistance(){
   delayMicroseconds(100);
   digitalWrite(TRIG_PIN, LOW);//trigger stop
   
-  duration = pulseIn(ECHO_PIN, HIGH, timeOut);//read result
-  
+  duration = pulseIn(ECHO_PIN, HIGH);//read result
+  printf("Time: %lu", duration);
 
   digitalWrite(ULTR_PIN, LOW);//turn off sensor  
   delay(100);
   
-  return (duration * speedSound)/20000;//cm
+  int result = (duration * speedSound)/20000;//cm
+  if(result > maxDistance || result < minDistance)result = 0;
+  
+  return result;
 }
 
 void transmit(int distance, int voltage) {
@@ -114,7 +118,7 @@ void transmit(int distance, int voltage) {
    data payload = { distance, voltage};
   
   digitalWrite(RF24_PIN, HIGH);//turn on power
-  delay(500);
+  delay(100);//rise time
   
    printf("\n\rRadio Start\n\n\r");
    SPI.begin();
@@ -161,20 +165,15 @@ void transmit(int distance, int voltage) {
 
 }
 
-int readVcc() {
-
-  static long result;
+int readBatt() {
   
-  // Read 1.1V reference against AVcc
-  ADMUX = _BV(REFS0) | _BV(MUX3) | _BV(MUX2) | _BV(MUX1);
-  delay(2); // Wait for Vref to settle
-  ADCSRA |= _BV(ADSC); // Convert
-  while (bit_is_set(ADCSRA, ADSC));
-  result = ADCL;
-  result |= ADCH << 8;
-  result = 1126400L / result; // Back-calculate AVcc in mV 
-  
-   result /= 100;
+   digitalWrite(VDIV_PIN, HIGH);//turn div on
+   
+   delay(100);//rise time
+   
+   int voltage = analogRead(BATT_PIN) * (float)(50 / 1023.0);
+   
+  digitalWrite(VDIV_PIN, LOW);//turn div off
     
-  return result;
+  return voltage;
 }

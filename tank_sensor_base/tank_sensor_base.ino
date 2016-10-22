@@ -4,6 +4,8 @@
 #include <LCD5110_Basic.h>
 #include <Wire.h>
 #include <RTClib.h>
+#include <Rotary.h>
+#include <Button.h>
 
 int channel = 84;
 RF24 radio(9,10);
@@ -24,11 +26,17 @@ char line[15];
 //init clock
 RTC_DS1307 RTC;
 
-const int LCD_BACKLIGHT = 3;
+const int LCD_BACKLIGHT = A0;
+
+Rotary r = Rotary(2, 3);
+Button button = Button(A1, BUTTON_PULLUP_INTERNAL);
 
 //25cm min
-const int SENS_HEIGHT = 233;//full heigh 33cm
-const int FULL_HEIGHT = 200;
+const int FULL_DISTANCE = 33;
+const int EMPTY_DISTANCE = 222;
+
+const int FULL_BATT = 48;//4.8v
+const int EMPTY_BATT = 27;//2.7v
 
 long lastRecieved;
 
@@ -49,7 +57,7 @@ void setup() {
     lcd.InitLCD();    
     
     pinMode(LCD_BACKLIGHT, OUTPUT);//lcd backlight
-    digitalWrite(LCD_BACKLIGHT, LOW);//lcd backlight  
+    digitalWrite(LCD_BACKLIGHT, LOW);//lcd backlight
 
     printf("\n\rwater_base\n\n\r");
     
@@ -69,88 +77,99 @@ void setup() {
     radio.powerUp();
     radio.printDetails(); 
     radio.startListening();   
-    
-     sprintf(line, "Top");
-     lcd.setFont(SmallFont);
-     lcd.print(line, LEFT, 0);
-     
-     sprintf(line, "2nd");
-     lcd.setFont(SmallFont);
-     lcd.print(line, RIGHT, 0);   
-     
-     sprintf(line, "100");
-     lcd.setFont(BigNumbers);
-     lcd.print(line, CENTER, 8);
-     lcd.setFont(SmallFont);
-     lcd.print("%", 62, 16);
-     
-     sprintf(line, "3rd");
-     lcd.setFont(SmallFont);
-     lcd.print(line, CENTER, 32);
-     
-     sprintf(line, "4th");
-     lcd.setFont(SmallFont);
-     lcd.print(line, CENTER, 40);
-     
-     
-     delay(1000);
-     //while(1);
-     lcd.clrScr();
      
      lastRecieved = RTC.now().get();
+     
+     PCICR |= (1 << PCIE2);
+     PCMSK2 |= (1 << PCINT18) | (1 << PCINT19);
+     sei();
     
 }
 
 void loop() {
-
   
-     DateTime now = RTC.now();
+    DateTime now = RTC.now();
   
-     sprintf(line, "%d:%02d ", (now.hour()>12?now.hour()-12:now.hour()), now.minute());
-     lcd.setFont(SmallFont);
-     lcd.print(line, LEFT, 0);
-     
-     DateTime timeSince = now.get()-lastRecieved;
-     
-     if(connected && timeSince.get() > timeout*60){connected = false;t++;}
-     
-     
-     sprintf(line, "%d:%02d/%d ", int(timeSince.get()/60), timeSince.second(),t);
-     lcd.setFont(SmallFont);
-     lcd.print(line, LEFT, 40);
-     
-
+    static int lastSec = 0;
+    static int percent = 0;
+    static int voltage = 0;
+    static int distance = 0;
+    static int refresh = 0;
   
-  if ( radio.available() ){
+    unsigned char result = r.process();
+    if (result) {
+      Serial.println(result == DIR_CW ? "Right" : "Left");
+    }
+    if(button.uniquePress())Serial.println("Enter");
     
-       i++;
-       lastRecieved = now.get();
-       connected = true;
-       
-       data payload;
-       radio.read(&payload, sizeof(payload));
-       
-        printf("\n\rDistance: %d cm, Voltage: %d\n\n\r",payload.distance, payload.voltage);
-        
-        int percent = map(payload.distance, SENS_HEIGHT, SENS_HEIGHT-FULL_HEIGHT, 0, 100);
-        
-         sprintf(line, "%d",percent);
+  
+    if ( radio.available() ){
+      
+           i++;
+           lastRecieved = now.get();
+           connected = true;
+           
+           data payload;
+           radio.read(&payload, sizeof(payload));
+           
+           distance = payload.distance;
+           voltage = payload.voltage;
+           
+            printf("\n\rDistance: %d cm, Voltage: %d\n\n\r", distance, voltage);
+            
+            percent = map(constrain(payload.distance, FULL_DISTANCE, EMPTY_DISTANCE), EMPTY_DISTANCE, FULL_DISTANCE, 0, 100);
+            
+            refresh = 1;
+    }
+     
+     if(lastSec != now.second() || refresh){//update every second
+     
+         lastSec = now.second();
+         refresh = 0;
+      
+         sprintf(line, "%2d:%02d", (now.hour()>12?now.hour()-12:now.hour()), now.minute());
+         lcd.setFont(SmallFont);
+         lcd.print(line, LEFT, 0);
+         
+         DateTime timeSince = now.get()-lastRecieved;
+         
+         if(connected && timeSince.get() > timeout*60){connected = false;t++;}         
+         
+         sprintf(line, "%2d:%02d/%d", int(timeSince.get()/60), timeSince.second(),t);
+         lcd.setFont(SmallFont);
+         lcd.print(line, LEFT, 40);
+    
+    
+         sprintf(line, "%03d",percent);
          lcd.setFont(BigNumbers);
          lcd.print(line, CENTER, 8);
          lcd.setFont(SmallFont);
          lcd.print("%", 62, 16);
+         
+         int percentage = map(voltage, EMPTY_BATT, FULL_BATT, 0, 100);
+         percentage = constrain(percentage, 0, 100);
         
-         sprintf(line, "%d.%dv", int(payload.voltage/10), payload.voltage-(int(payload.voltage/10)*10));
+         sprintf(line, "%d%% %d.%dv", percentage, int(voltage/10), voltage-(int(voltage/10)*10));
          lcd.setFont(SmallFont);
          lcd.print(line, RIGHT, 0);
          
-         sprintf(line, "%dcm", payload.distance);
+         sprintf(line, "%3dcm", distance);
          lcd.setFont(SmallFont);
-         lcd.print(line, RIGHT, 40);       
+         lcd.print(line, RIGHT, 40);
+       
+     }
+}
 
-        
-  } 
 
- 
-
+ISR(PCINT2_vect) {
+  unsigned char result = r.process();
+  if (result == DIR_NONE) {
+    // do nothing
+  }
+  else if (result == DIR_CW) {
+    Serial.println("ClockWise");
+  }
+  else if (result == DIR_CCW) {
+    Serial.println("CounterClockWise");
+  }
 }
