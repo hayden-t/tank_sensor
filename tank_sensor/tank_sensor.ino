@@ -1,13 +1,16 @@
+
+
 #include <SPI.h>
 #include <RF24.h>
 #include "printf.h"
 #include "LowPower.h"
+#include <NewPing.h>
 
 int channel = 84;
 RF24 radio(9,10);
 
-#define MIN_PA
-//#define LOW_PA
+//#define MIN_PA
+#define LOW_PA
 //#define HIGH_PA
 
 //#define SLEEP_4
@@ -25,10 +28,9 @@ int txDelay = 1000;//delay between txTimes //100 seems to work
 
 const int SleepTimes = 75;//x8 sec = sleep timer 75 = 10min, 0 = dont sleep, keep reading
 
-
 const int speedSound = 343;//m/s
-const int minDistance = 25;//minimum distance sensor can read, under is error
-const int maxDistance = 445;//maximum distance sensor can read, over is error
+
+const int MAX_DISTANCE = 445;//maximum distance sensor can read, over is error
 
 const int TRIG_PIN = 2;
 const int ECHO_PIN = 4;
@@ -37,20 +39,21 @@ const int VDIV_PIN = 7;
 const int RF24_PIN = 8;
 const int BATT_PIN = A3;
 
+NewPing sonar(TRIG_PIN, ECHO_PIN, MAX_DISTANCE);
+
 void setup() {
   
   Serial.begin(9600);
   printf_begin();
   printf("\n\n\rWATER SENSOR START\n\n\r");
-  pinMode(ECHO_PIN, INPUT);//echo
   pinMode(BATT_PIN, INPUT);//battery voltage
-  pinMode(TRIG_PIN, OUTPUT);//triger
   pinMode(ULTR_PIN, OUTPUT);//sensor switch
   pinMode(VDIV_PIN, OUTPUT);//battery voltage divider switch
   pinMode(RF24_PIN, OUTPUT);//sensor switch
   digitalWrite(ULTR_PIN, LOW);//turn off sensor power
   digitalWrite(VDIV_PIN, LOW);//turn off divider power
-  digitalWrite(RF24_PIN, LOW);//turn off sensor power
+  digitalWrite(RF24_PIN, LOW);//turn off sensor power 
+  
 
 }
 
@@ -93,22 +96,17 @@ int getDistance(){
   printf("\n\rReading Distance\n\r");
   
   digitalWrite(ULTR_PIN, HIGH);//turn on sensor
-  delay(500);//risetime
+  delay(500);//risetime  
   
-  unsigned long duration; 
-
-  digitalWrite(TRIG_PIN, HIGH);//trigger start
-  delayMicroseconds(100);
-  digitalWrite(TRIG_PIN, LOW);//trigger stop
+  int duration = sonar.ping();
   
-  duration = pulseIn(ECHO_PIN, HIGH);//read result
   printf("Time: %lu", duration);
 
   digitalWrite(ULTR_PIN, LOW);//turn off sensor  
   delay(100);
   
-  int result = (duration * speedSound)/20000;//cm
-  if(result > maxDistance || result < minDistance)result = 0;
+  int result = sonar.convert_cm(duration);
+  //if(result > maxDistance || result < minDistance)result = 0;
   
   return result;
 }

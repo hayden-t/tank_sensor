@@ -18,7 +18,7 @@ typedef struct {
   byte voltage;
 }data;
 
-LCD5110 lcd(4,7,6,8,5);
+LCD5110 lcd(8,7,6,4,5);
 extern uint8_t SmallFont[];
 extern uint8_t BigNumbers[];
 char line[15];
@@ -117,7 +117,8 @@ void loop() {
            
             printf("\n\rDistance: %d cm, Voltage: %d\n\n\r", distance, voltage);
             
-            percent = map(constrain(payload.distance, FULL_DISTANCE, EMPTY_DISTANCE), EMPTY_DISTANCE, FULL_DISTANCE, 0, 100);
+            if(percent != 0)percent = map(constrain(payload.distance, FULL_DISTANCE, EMPTY_DISTANCE), EMPTY_DISTANCE, FULL_DISTANCE, 0, 100);
+            else percent = -1;//sensor out of range error 
             
             refresh = 1;
     }
@@ -133,9 +134,9 @@ void loop() {
          
          DateTime timeSince = now.get()-lastRecieved;
          
-         if(connected && timeSince.get() > timeout*60){connected = false;t++;}         
+         if(connected && timeSince.get() > timeout*60){connected = false;t++;}
          
-         sprintf(line, "%2d:%02d/%d", int(timeSince.get()/60), timeSince.second(),t);
+         sprintf(line, "%2d:%02d/%d", min(int(timeSince.get()/60),99), timeSince.second(),t);
          lcd.setFont(SmallFont);
          lcd.print(line, LEFT, 40);
     
