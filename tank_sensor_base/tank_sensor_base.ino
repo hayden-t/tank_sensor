@@ -33,7 +33,7 @@ Button button = Button(A1, BUTTON_PULLUP_INTERNAL);
 
 //25cm min
 const int FULL_DISTANCE = 33;
-const int EMPTY_DISTANCE = 222;
+const int EMPTY_DISTANCE = 231;
 
 const int FULL_BATT = 48;//4.8v
 const int EMPTY_BATT = 27;//2.7v
@@ -95,6 +95,9 @@ void loop() {
     static int voltage = 0;
     static int distance = 0;
     static int refresh = 0;
+    
+    static int pos = 1;
+    
   
     unsigned char result = r.process();
     if (result) {
@@ -112,12 +115,18 @@ void loop() {
            data payload;
            radio.read(&payload, sizeof(payload));
            
+           if(payload.distance != distance)//changed
+           {
+             pos++;
+             if(pos > 5)pos = 1;
+           }
+           
            distance = payload.distance;
            voltage = payload.voltage;
            
             printf("\n\rDistance: %d cm, Voltage: %d\n\n\r", distance, voltage);
             
-            if(percent != 0)percent = map(constrain(payload.distance, FULL_DISTANCE, EMPTY_DISTANCE), EMPTY_DISTANCE, FULL_DISTANCE, 0, 100);
+            if(distance != 0)percent = map(constrain(distance, FULL_DISTANCE, EMPTY_DISTANCE), EMPTY_DISTANCE, FULL_DISTANCE, 0, 100);
             else percent = -1;//sensor out of range error 
             
             refresh = 1;
@@ -138,25 +147,33 @@ void loop() {
          
          sprintf(line, "%2d:%02d/%d", min(int(timeSince.get()/60),99), timeSince.second(),t);
          lcd.setFont(SmallFont);
-         lcd.print(line, LEFT, 40);
+         lcd.print(line, RIGHT, 0);
     
     
-         sprintf(line, "%03d",percent);
-         lcd.setFont(BigNumbers);
-         lcd.print(line, CENTER, 8);
-         lcd.setFont(SmallFont);
-         lcd.print("%", 62, 16);
+
+    
+//         sprintf(line, "%03d",percent);
+//         lcd.setFont(BigNumbers);
+//         lcd.print(line, CENTER, 8);
+//         lcd.setFont(SmallFont);
+//         lcd.print("%", 62, 16);
          
          int percentage = map(voltage, EMPTY_BATT, FULL_BATT, 0, 100);
-         percentage = constrain(percentage, 0, 100);
-        
-         sprintf(line, "%d%% %d.%dv", percentage, int(voltage/10), voltage-(int(voltage/10)*10));
-         lcd.setFont(SmallFont);
-         lcd.print(line, RIGHT, 0);
+         percentage = constrain(percentage, 0, 99);
+//        
+//         sprintf(line, "%d%% %d.%dv", percentage, int(voltage/10), voltage-(int(voltage/10)*10));
+//         lcd.setFont(SmallFont);
+//         lcd.print(line, RIGHT, 0);
          
-         sprintf(line, "%3dcm", distance);
+//         sprintf(line, "%3dcm", distance);
+//         lcd.setFont(SmallFont);
+//         lcd.print(line, RIGHT, 40);
+
+
+         sprintf(line, "%02d %3dcm %2d:%02d", percent, distance , (now.hour()>12?now.hour()-12:now.hour()), now.minute());
          lcd.setFont(SmallFont);
-         lcd.print(line, RIGHT, 40);
+         lcd.print(line, LEFT, 8 * pos);
+
        
      }
 }
