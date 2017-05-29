@@ -1,6 +1,5 @@
-
-
 #include <SPI.h>
+#include "nRF24L01.h"
 #include <RF24.h>
 #include "printf.h"
 #include "LowPower.h"
@@ -13,7 +12,7 @@ RF24 radio(9,10);
 #define LOW_PA
 //#define HIGH_PA
 
-//#define SLEEP_4
+//#define DEBUG //if enabled, prints to serial affects battery life
 
 const uint64_t pipes[2] = { 0xF0F0F0F0E1LL, 0xF0F0F0F0D2LL };
 
@@ -22,13 +21,12 @@ typedef struct {
   byte voltage;
 }data;
 
-int txTimes = 3;//times to resend same reading
-int txDelay = 1000;//delay between txTimes //100 seems to work
+byte ack;//standard reply ack
 
+int txTimes = 3;//times to resend same reading
+int txDelay = 100;//delay between txTimes //100 seems to work
 
 const int SleepTimes = 75;//x8 sec = sleep timer 75 = 10min, 0 = dont sleep, keep reading
-
-const int speedSound = 343;//m/s
 
 const int MAX_DISTANCE = 445;//maximum distance sensor can read, over is error
 
@@ -46,7 +44,12 @@ void setup() {
   Serial.begin(9600);
   printf_begin();
   printf("\n\n\rWATER SENSOR START\n\n\r");
-  pinMode(BATT_PIN, INPUT);//battery voltage
+  
+  #ifndef DEBUG
+     printf("\n\rDebug OFF\n\r");
+  #endif
+
+  pinMode(BATT_PIN, INPUT);//battery voltage divider output
   pinMode(ULTR_PIN, OUTPUT);//sensor switch
   pinMode(VDIV_PIN, OUTPUT);//battery voltage divider switch
   pinMode(RF24_PIN, OUTPUT);//sensor switch
@@ -59,51 +62,62 @@ void setup() {
 
 void loop(){
 
-     printf("\n\rPower ON\n\r");
+     #ifdef DEBUG
+       printf("\n\rPower ON\n\r");
+     #endif
      
      int distance = getDistance();
      int voltage = readBatt();
      
-     printf("\n\rDistance: %d cm, Voltage: %d\n\r",distance, voltage); 
-     if(!distance)printf("** Error reading Sensor **\n\r");
+     #ifdef DEBUG
+       printf("\n\rDistance: %d cm, Voltage: %d\n\r",distance, voltage); 
+       if(!distance)printf("** Error reading Sensor **\n\r");
+     #endif
      
      transmit(distance, voltage);    
     
-    if(SleepTimes){
-       printf("Power OFF\n\r\n\r");
-    }
+    #ifdef DEBUG
+      if(SleepTimes){
+         printf("Power OFF\n\r\n\r");
+      }
+    #endif
     
      int i = 0;
      while(i < SleepTimes){
       
-        printf("%d.",SleepTimes - i);
-        delay(100);
-       #ifdef SLEEP_4 
-         LowPower.powerDown(SLEEP_4S, ADC_OFF, BOD_OFF);
-       #else
-         LowPower.powerDown(SLEEP_8S, ADC_OFF, BOD_OFF);
+      
+       #ifdef DEBUG
+         printf("%d.",SleepTimes - i);
+         delay(100);
        #endif
+       LowPower.powerDown(SLEEP_8S, ADC_OFF, BOD_OFF);
+
         i++;
        
      }
      if(!SleepTimes)delay(3000);//no sleep delay between reads
-     printf("\n\r");
+     #ifdef DEBUG
+       printf("\n\r");
+     #endif
      
 }//end loop
 
 int getDistance(){
   
-  printf("\n\rReading Distance\n\r");
+  #ifdef DEBUG
+    printf("\n\rReading Distance\n\r");
+  #endif
   
   digitalWrite(ULTR_PIN, HIGH);//turn on sensor
-  delay(500);//risetime  
+  delay(100);//risetime  
   
-  int duration = sonar.ping();
+  int duration = sonar.ping_median();
   
-  printf("Time: %lu", duration);
-
-  digitalWrite(ULTR_PIN, LOW);//turn off sensor  
-  delay(100);
+  digitalWrite(ULTR_PIN, LOW);//turn off sensor
+  
+  #ifdef DEBUG
+    printf("Time: %lu", duration); 
+  #endif
   
   int result = sonar.convert_cm(duration);
   //if(result > maxDistance || result < minDistance)result = 0;
@@ -115,13 +129,16 @@ void transmit(int distance, int voltage) {
   
    data payload = { distance, voltage};
   
-  digitalWrite(RF24_PIN, HIGH);//turn on power
-  delay(100);//rise time
+   digitalWrite(RF24_PIN, HIGH);//turn on power
+   delay(10);//rise time
   
-   printf("\n\rRadio Start\n\n\r");
+   #ifdef DEBUG
+     printf("\n\rRadio Start\n\n\r");
+   #endif
+   
    SPI.begin();
    radio.begin();
-   
+   radio.enableAckPayload();
    radio.setPayloadSize(sizeof(data));
    
    radio.setChannel(channel);
@@ -137,8 +154,8 @@ void transmit(int distance, int voltage) {
     #endif
    
    radio.setDataRate(RF24_250KBPS);
-   
-   radio.setRetries(15,15);
+  
+   radio.setRetries(15,10);
 
    radio.openWritingPipe(pipes[0]);
    radio.openReadingPipe(1,pipes[1]);   
@@ -147,15 +164,41 @@ void transmit(int distance, int voltage) {
    
    radio.flush_tx();
    
-   radio.printDetails();printf("\n\r");
-   
+   #ifdef DEBUG
+     radio.printDetails();printf("\n\r");
+   #endif
       
      int i = 0;
-     while(i < txTimes){
-       if (radio.write( &payload, sizeof(payload))) printf("Transmit Success.\n\n\r");//??
-       else printf("Transmit Failed.\n\n\r");
-       delay(txDelay);
+     while(1){
+       #ifdef DEBUG
+         printf("Transmiting...");
+       #endif
+       if (radio.write( &payload, sizeof(payload))){
+         #ifdef DEBUG
+           printf("Sent...");
+         #endif
+         if(radio.isAckPayloadAvailable()){
+           #ifdef DEBUG
+             printf("Ack...");
+           #endif
+           radio.read( &ack, 1 );
+           if(ack == 255){//simple reply recived ok
+              #ifdef DEBUG
+                printf("Recieved.\n\n\r");
+              #endif
+              break;             
+           }
+         }
+  
+       }else{
+       #ifdef DEBUG
+         printf("Transmit Failed.\n\n\r");
+       #endif
+       }
+       
        i++;
+       if(i == txTimes)break;//delay only if going to tx again
+       delay(txDelay);
      }
      
    digitalWrite(RF24_PIN, LOW);//turn off rf
@@ -167,11 +210,13 @@ int readBatt() {
   
    digitalWrite(VDIV_PIN, HIGH);//turn div on
    
-   delay(100);//rise time
+   delay(10);//rise time
    
-   int voltage = analogRead(BATT_PIN) * (float)(50 / 1023.0);
+   int voltage = analogRead(BATT_PIN) * (float)(50 / 1023.0);//read voltage at divider
    
-  digitalWrite(VDIV_PIN, LOW);//turn div off
+   voltage = int((voltage * 2)/6);//convert to cell voltage
+   
+   digitalWrite(VDIV_PIN, LOW);//turn div off
     
-  return voltage;
+   return voltage;
 }

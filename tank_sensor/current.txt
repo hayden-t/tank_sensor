@@ -1,0 +1,42 @@
+measurements made with oscilloscope measuring voltage drop across 5ohm resistor (tests as 5.4 omh)
+
+600ms @ 27ma (144mv) - sensor read 0.0045 mah
+200ms @ 8.14ma (44mv) - read battery 0.00045 mah
+100ms @ 13ma (72mv) - tx rise 0.00036 mah
+
+70ms @ 60ma (308mv) - tx (depend on retries) 0.0011mah
+1000ms @ 13ma (72mv) - tx idle 0.0036mah
+
+
+x3 transmits @ 0.0047mah each = 0.0141mah
+
+sleep
+
+0.01941 mah per reading
+
+@10min interval
+
+0.11646 mah/hr
+2.79504 mah/day
+
+found 1.98 mah/day in a sleep wake up delay !
+
+4.77504 mah/day
+
+@ 800mah capacity 167 days, 5.5 months theoretical
+
+14ua 0.014ma sleep
+
+device actually lasted ~4 months (was some periods where moisture ingressed, and maybe casued voltage seep/drain ?)
+
+code adjustments:
+
+1.98 mah/day sleep commented out
+
+removed 100ms from sensor turn off delay
+reduced sensor read rise delay by 400ms
+added tx repeat break if successful transmit ack from base
+made only delay after tx if going to tx again
+reduced tx delay 1000 to 100
+reduced 2 rise time delays 100 to 10
+added debug option for all serial outputs
